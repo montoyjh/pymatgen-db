@@ -647,10 +647,10 @@ def get_basic_analysis_and_error_checks(d, max_force_threshold=0.5,
         warning_msgs.append("Volume change > {}%"
                             .format(volume_change_threshold * 100))
 
-    bv_struct = Structure.from_dict(d["output"]["crystal"])
+    final_struct = Structure.from_dict(d["output"]["crystal"])
     try:
         bva = BVAnalyzer()
-        bv_struct = bva.get_oxi_state_decorated_structure(bv_struct)
+        bv_struct = bva.get_oxi_state_decorated_structure(final_struct)
     except ValueError as e:
         logger.error("Valence cannot be determined due to {e}."
                      .format(e=e))
@@ -661,17 +661,19 @@ def get_basic_analysis_and_error_checks(d, max_force_threshold=0.5,
     if d["state"] == "successful" and \
             d["calculations"][0]["input"]["parameters"].get("NSW", 0) > 0:
         # handle the max force and max force error
-        max_force = max([np.linalg.norm(a)
-                        for a in d["calculations"][-1]["output"]
-                        ["ionic_steps"][-1]["forces"]])
+        forces = np.array(d["calculations"][-1]["output"]
+                           ["ionic_steps"][-1]["forces"])
+        sdyn = final_struct.site_properties.get("selective_dynamics", None)
+        if sdyn:
+            forces[np.logical_not(sdyn)] = 0
+        max_force = max(np.linalg.norm(forces, axis=1))
 
         if max_force > max_force_threshold:
             error_msgs.append("Final max force exceeds {} eV"
                               .format(max_force_threshold))
             d["state"] = "error"
 
-        s = Structure.from_dict(d["output"]["crystal"])
-        if not s.is_valid():
+        if not final_struct.is_valid():
             error_msgs.append("Bad structure (atoms are too close!)")
             d["state"] = "error"
 
